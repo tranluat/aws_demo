@@ -1,0 +1,52 @@
+name: Deploy develop branch
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch: {}
+
+env:
+  AWS_REGION: ap-northeast-1
+  ECR_REPOSITORY_DEMO: luat_ecr_demo
+  ECS_CLUSTER: luat_aws_cluster_demo
+  ECS_SERVICE: luat_dev_tdf-service
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-and-build:
+    environment: develop
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        id: aws-creds
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: arn:aws:iam::684651436927:role/github_develop_permission
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push Docker images
+        run: |
+          
+          docker build -t ${{ env.ECR_REPOSITORY_DEMO }} -f ./Dockerfile .
+          docker tag ${{ env.ECR_REPOSITORY_DEMO }}:latest \
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_DEMO }}:latest
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_DEMO }}:latest
+      
+      - name: Redeploy ECS service
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --force-new-deployment
